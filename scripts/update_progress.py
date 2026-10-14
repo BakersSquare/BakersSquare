@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Render project status badges and progress bars into README.md.
 
-Reads projects.json, counts open/closed issues carrying each project's version
-label via the GitHub search API, writes a progress-bar SVG per entry to
+Reads projects.json, counts done/total items on each entry's GitHub Project (v2)
+via the GraphQL API, writes a progress-bar SVG per entry to
 assets/progress/, and rewrites the block between the PROGRESS markers in
 README.md.
 
@@ -33,23 +33,83 @@ STATUS = {
 }
 
 
-def search_count(query, token):
-    url = "https://api.github.com/search/issues?" + urllib.parse.urlencode(
-        {"q": query, "per_page": 1}
+PROJECT_QUERY = """
+query($owner: String!, $name: String!, $title: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    projectsV2(query: $title, first: 20) {
+      nodes {
+        title
+        items(first: 100, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            isArchived
+            fieldValueByName(name: "Status") {
+              ... on ProjectV2ItemFieldSingleSelectValue { name }
+            }
+            content {
+              ... on Issue { state }
+              ... on PullRequest { state }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def graphql(query, variables, token):
+    req = urllib.request.Request(
+        "https://api.github.com/graphql",
+        data=json.dumps({"query": query, "variables": variables}).encode(),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "readme-progress",
+        },
     )
-    req = urllib.request.Request(url, headers={
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "readme-progress",
-        **({"Authorization": f"Bearer {token}"} if token else {}),
-    })
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.load(resp)["total_count"]
+        body = json.load(resp)
+    if body.get("errors"):
+        sys.exit(f"GitHub GraphQL error: {body['errors']}")
+    return body["data"]
+
+
+def is_done(item, done_status):
+    status = (item.get("fieldValueByName") or {}).get("name")
+    if status:
+        return status == done_status
+    # No Status set: fall back to the issue/PR state.
+    return (item.get("content") or {}).get("state") in ("CLOSED", "MERGED")
 
 
 def fetch_counts(project, token):
-    base = f'repo:{project["repo"]} is:issue label:"{project["label"]}"'
-    return search_count(base, token), search_count(base + " is:closed", token)
+    """Return (done, total) for the GitHub Project (v2) named project["project"]."""
+    if not token:
+        sys.exit("GH_TOKEN is required to read GitHub Projects")
+    owner, name = project["repo"].split("/")
+    done_status = project.get("done_status", "Done")
+    done = total = 0
+    cursor = None
+    while True:
+        data = graphql(PROJECT_QUERY, {
+            "owner": owner, "name": name, "title": project["project"], "cursor": cursor,
+        }, token)
+        nodes = data["repository"]["projectsV2"]["nodes"]
+        match = next((n for n in nodes if n["title"] == project["project"]), None)
+        if match is None:
+            found = ", ".join(repr(n["title"]) for n in nodes) or "none"
+            sys.exit(f'Project {project["project"]!r} not found in {project["repo"]} (found: {found})')
+        for item in match["items"]["nodes"]:
+            if item.get("isArchived"):
+                continue
+            total += 1
+            done += is_done(item, done_status)
+        page = match["items"]["pageInfo"]
+        if not page["hasNextPage"]:
+            return done, total
+        cursor = page["endCursor"]
 
 
 def status_of(closed, total):
@@ -73,7 +133,7 @@ def progress_svg(closed, total, color):
     width, height, bar_w = 260, 20, 160
     pct = round(100 * closed / total) if total else 0
     fill = round(bar_w * pct / 100)
-    label = f"{closed}/{total} · {pct}%" if total else "no issues yet"
+    label = f"{closed}/{total} · {pct}%" if total else "no items yet"
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" role="img" aria-label="{label}">
   <title>{label}</title>
   <rect x="0" y="4" width="{bar_w}" height="12" rx="6" fill="#e5e7eb"/>
@@ -92,13 +152,13 @@ def render_row(project, closed, total):
     return (
         f'**[{project["name"]}](https://github.com/{project["repo"]})**<br>\n'
         f'<img src="{badge}" alt="{project["version"]}: {text}"><br>\n'
-        f'<img src="assets/progress/{name}.svg" alt="{closed} of {total} issues closed">\n'
+        f'<img src="assets/progress/{name}.svg" alt="{closed} of {total} items done">\n'
     )
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--fixture", help="JSON file mapping '<repo>@<label>' to [closed, total]")
+    parser.add_argument("--fixture", help="JSON file mapping '<repo>@<project>' to [closed, total]")
     args = parser.parse_args()
 
     projects = json.loads(CONFIG.read_text())["projects"]
@@ -108,11 +168,10 @@ def main():
 
     rows = []
     for project in projects:
-        project.setdefault("label", project["version"])
         if fixture is not None:
-            closed, total = fixture[f'{project["repo"]}@{project["label"]}']
+            closed, total = fixture[f'{project["repo"]}@{project["project"]}']
         else:
-            total, closed = fetch_counts(project, token)
+            closed, total = fetch_counts(project, token)
         rows.append(render_row(project, closed, total))
 
     readme = README.read_text()
