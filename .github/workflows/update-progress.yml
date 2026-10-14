@@ -30,7 +30,7 @@ jobs:
 
       - name: Compute progress and render README
         env:
-          GH_TOKEN: ${{ secrets.PROGRESS_TOKEN }}
+          GH_TOKEN: ${{ secrets.PERSONAL_PROJECT_TRACKER }}
         run: python scripts/update_progress.py
 
       - name: Commit changes
