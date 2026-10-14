@@ -1,0 +1,10 @@
+{
+  "projects": [
+    {
+      "name": "Campus Leases",
+      "repo": "BakersSquare/next-js-campus-leases",
+      "version": "v1.0",
+      "label": "v1.0"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+name: Update project progress
+
+on:
+  schedule:
+    - cron: "0 13 * * 1" # Mondays 13:00 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - projects.json
+      - scripts/update_progress.py
+      - .github/workflows/update-progress.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-progress
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compute progress and render README
+        env:
+          GH_TOKEN: ${{ secrets.PROGRESS_TOKEN }}
+        run: python scripts/update_progress.py
+
+      - name: Commit changes
+        run: |
+          git add README.md assets/progress
+          if git diff --cached --quiet; then
+            echo "No changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898231+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update project progress"
+          git push
