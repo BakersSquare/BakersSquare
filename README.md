@@ -6,5 +6,5 @@
 <!-- PROGRESS:START -->
 **[LeaseFinder](https://github.com/BakersSquare/next-js-campus-leases)**<br>
 <img src="https://img.shields.io/badge/0.5.0-In_progress-yellow" alt="0.5.0: In progress"><br>
-<img src="assets/progress/bakerssquare-next-js-campus-leases-0.5.0.svg" alt="0 of 9 items done">
+<img src="assets/progress/bakerssquare-next-js-campus-leases-0.5.0.svg" alt="1 of 15 items done">
 <!-- PROGRESS:END -->
