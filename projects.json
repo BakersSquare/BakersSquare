@@ -5,6 +5,12 @@
       "repo": "BakersSquare/next-js-campus-leases",
       "version": "0.5.0",
       "project": "LeaseFinder Release 0.5.0"
+    },
+        {
+      "name": "LeaseFinder",
+      "repo": "BakersSquare/next-js-campus-leases",
+      "version": "0.6.0",
+      "project": "LeaseFinder Release 0.6.0"
     }
   ]
 }
